@@ -1,115 +1,195 @@
 #include "parser.h"
-
-void printcmd(struct cmd *cmd)
-{
-    struct backcmd *bcmd = NULL;
-    struct execcmd *ecmd = NULL;
-    struct listcmd *lcmd = NULL;
-    struct pipecmd *pcmd = NULL;
-    struct redircmd *rcmd = NULL;
-
-    int i = 0;
-    
-    if(cmd == NULL)
-    {
-        PANIC("NULL addr!");
-        return;
-    }
-    
-
-    switch(cmd->type){
-        case EXEC:
-            ecmd = (struct execcmd*)cmd;
-            if(ecmd->argv[0] == 0)
-            {
-                goto printcmd_exit;
-            }
-
-            MSG("COMMAND: %s", ecmd->argv[0]);
-            for (i = 1; i < MAXARGS; i++)
-            {            
-                if (ecmd->argv[i] != NULL)
-                {
-                    MSG(", arg-%d: %s", i, ecmd->argv[i]);
-                }
-            }
-            MSG("\n");
-
-            break;
-
-        case REDIR:
-            rcmd = (struct redircmd*)cmd;
-
-            printcmd(rcmd->cmd);
-
-            if (0 == rcmd->fd_to_close)
-            {
-                MSG("... input of the above command will be redirected from file \"%s\". \n", rcmd->file);
-            }
-            else if (1 == rcmd->fd_to_close)
-            {
-                MSG("... output of the above command will be redirected to file \"%s\". \n", rcmd->file);
-            }
-            else
-            {
-                PANIC("");
-            }
-
-            break;
-
-        case LIST:
-            lcmd = (struct listcmd*)cmd;
-
-            printcmd(lcmd->left);
-            MSG("\n\n");
-            printcmd(lcmd->right);
-            
-            break;
-
-        case PIPE:
-            pcmd = (struct pipecmd*)cmd;
-
-            printcmd(pcmd->left);
-            MSG("... output of the above command will be redrecited to serve as the input of the following command ...\n");            
-            printcmd(pcmd->right);
-
-            break;
-
-        case BACK:
-            bcmd = (struct backcmd*)cmd;
-
-            printcmd(bcmd->cmd);
-            MSG("... the above command will be executed in background. \n");    
-
-            break;
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 
-        default:
-            PANIC("");
-    
-    }
-    
-    printcmd_exit:
-
-    return;
+void printcmd(struct cmd *cmd){
 }
+
+void execute(struct cmd *cmd)
+{
+  struct backcmd *bcmd = NULL;
+  struct execcmd *ecmd = NULL;
+  struct listcmd *lcmd = NULL;
+  struct pipecmd *pcmd = NULL;
+  struct redircmd *rcmd = NULL;
+
+  int i = 0;
+
+  if(cmd == NULL)
+    {
+      PANIC("NULL addr!");
+      return;
+    }
+
+  switch(cmd->type){
+  case EXEC:
+    ecmd = (struct execcmd*)cmd;
+    pid_t pid;
+    int status;
+    pid = fork();
+    if (pid == 0){ // child process
+      int s = execvp(ecmd->argv[0], &ecmd->argv[0]);
+    }
+    else if (pid > 0){ //parent process
+      pid = wait(&status);
+      int exit_status = WEXITSTATUS(status);
+      if (exit_status !=0){
+	printf("Non-zero exit code (%d) detected\n", exit_status);
+      }
+    }
+    else{ //failed
+      fprintf(stderr, "Fork failed");
+      exit(-1);
+    }
+
+    break;
+
+  case REDIR:
+    rcmd = (struct redircmd*)cmd;
+    ecmd = (struct execcmd*)rcmd->cmd;
+
+    pid = fork();
+    if (pid < 0){
+      fprintf(stderr, "REDIR: Fork failed\n");
+    }
+
+    if (pid == 0){
+      int fd = open(rcmd->file, rcmd->mode, 0666);
+      if (fd < 0){
+	fprintf(stderr, "Error opening file", rcmd->file);
+      }
+
+      if (rcmd->fd_to_close == 1){
+	dup2(fd, 1);
+      }
+      else {
+	dup2(fd, 0);
+      }
+
+      if (ecmd->type == REDIR){
+	execute((struct cmd *)ecmd);
+	exit(0);
+      }
+      else{
+	execvp(ecmd->argv[0], &ecmd->argv[0]);
+      }
+    }
+    else{
+      wait(&status);
+    }
+    break;
+
+  case LIST:
+    lcmd = (struct listcmd*)cmd;
+
+    pid = fork();
+    if (pid == 0){ // child process
+      ecmd = (struct execcmd*)lcmd->left;
+      int s = execvp(ecmd->argv[0], &ecmd->argv[0]);
+    }
+    else{
+      pid = fork();
+      if (pid == 0){ // child process
+	ecmd = (struct execcmd*)lcmd->right;
+	int a = execvp(ecmd->argv[0], &ecmd->argv[0]);
+      }
+      else if (pid > 0){ //parent process
+	for (int i = 0; i < 2; i++){
+	  pid = wait(&status);
+	  int exit_status = WEXITSTATUS(status);
+	  if (exit_status !=0){
+	    printf("Non-zero exit code (%d) detected\n", exit_status);
+	  }
+	}
+      }
+    }
+
+    break;
+
+  case PIPE:
+    pcmd = (struct pipecmd*)cmd;
+    int fd[2];
+    pipe(fd);
+    if (fork() == 0){
+      ecmd = (struct execcmd*)pcmd->left;
+      dup2(fd[1], 1);
+      close(fd[0]);
+      close(fd[1]);
+      execvp(ecmd->argv[0], &ecmd->argv[0]);
+    }
+    if (fork() == 0){
+      dup2(fd[0], 0);
+      close(fd[1]);
+      close(fd[0]);
+      if (pcmd->right->type == PIPE){
+	execute(pcmd->right);
+	exit(0);
+      }
+      else{
+	ecmd = (struct execcmd*)pcmd->right;
+	execvp(ecmd->argv[0], &ecmd->argv[0]);
+      }
+    }
+    //int status;
+    close(fd[0]);
+    close(fd[1]);
+    for (int i = 0; i < 2; i++){
+      wait(&status);
+    }
+    setbuf(stdout, NULL);
+    break;
+
+  case BACK:
+    bcmd = (struct backcmd*)cmd;
+    pid = fork();
+    if (pid < 0){
+      fprintf(stderr, "Fork failed");
+    }
+    else if (pid == 0){ // child process
+      ecmd = (struct execcmd*)cmd;
+      execvp(ecmd->argv[0], &ecmd->argv[0]);
+      exit(0);
+    }
+    else{ //parent
+      int status;
+      waitpid(pid, &status, 0);
+    }
+    break;
+
+
+  default:
+    PANIC("");
+
+  }
+ printcmd_exit:
+
+  return;
+}
+
+
 
 
 int main(void)
 {
-    static char buf[1024];
-    int fd;
+  static char buf[1024];
+  int fd;
 
-    setbuf(stdout, NULL);
+  setbuf(stdout, NULL);
 
-    // Read and run input commands.
-    while(getcmd(buf, sizeof(buf)) >= 0)
+  // Read and run input commands.
+  while(getcmd(buf, sizeof(buf)) >= 0)
     {
-        struct cmd * command;
-        command = parsecmd(buf);
-        printcmd(command); // TODO: run the parsed command instead of printing it
+      struct cmd * command;
+      command = parsecmd(buf);
+      execute(command); // TODO: run the parsed command instead of printing it
     }
 
-    PANIC("getcmd error!\n");
-    return 0;
+  PANIC("getcmd error!\n");
+  return 0;
 }
