@@ -10,8 +10,8 @@
 
 static volatile int running = 1;
 
-void handlec(){
-  running = 0;
+void change_status(){
+  running = !(running);
 }
 
 void printcmd(struct cmd *cmd){
@@ -184,7 +184,7 @@ int main(void)
   int fd;
 
   setbuf(stdout, NULL);
-  signal(SIGINT, handlec);
+  signal(SIGINT, change_status);
   
   while(getcmd(buf, sizeof(buf)) >= 0)
     {
@@ -194,7 +194,7 @@ int main(void)
       }
       struct cmd * command;
       command = parsecmd(buf);
-      execute(command); 
+      execute(command);
     }
   exit(0);
 
