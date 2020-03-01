@@ -54,6 +54,7 @@ void execute(struct cmd *cmd)
       exit(-1);
     }
     waitpid(-1, NULL, WNOHANG);
+    setbuf(stdout, NULL);
 
     break;
 
@@ -164,7 +165,7 @@ void execute(struct cmd *cmd)
       execute(bcmd->cmd);
       exit(0);
     }  
-    
+    setbuf(stdout, NULL);
     break;
 
   default:
@@ -197,6 +198,7 @@ int main(void)
       execute(command);
     }
   exit(0);
+  setbuf(stdout, NULL);
 
   PANIC("getcmd error!\n");
   return 0;
