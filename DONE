@@ -1,3 +1,4 @@
 status: complete w/ extra credit
+bugs: sometimes the myshell> disappears after test case 10, but functionality remains the same
 extra credit: code inspired by https://stackoverflow.com/questions/4217037/catch-ctrl-c-in-c/4217052
 
