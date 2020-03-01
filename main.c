@@ -6,7 +6,13 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <signal.h>
 
+static volatile int running = 1;
+
+void handlec(){
+  running = 0;
+}
 
 void printcmd(struct cmd *cmd){
 }
@@ -47,6 +53,7 @@ void execute(struct cmd *cmd)
       fprintf(stderr, "Fork failed");
       exit(-1);
     }
+    waitpid(-1, NULL, WNOHANG);
 
     break;
 
@@ -56,13 +63,15 @@ void execute(struct cmd *cmd)
 
     pid = fork();
     if (pid < 0){
-      fprintf(stderr, "REDIR: Fork failed\n");
+      fprintf(stderr, "Error opening file\n");
+      exit(0);
     }
 
     if (pid == 0){
       int fd = open(rcmd->file, rcmd->mode, 0666);
       if (fd < 0){
-	fprintf(stderr, "Error opening file", rcmd->file);
+	fprintf(stderr, "Error opening file\n", rcmd->file);
+	exit(0);
       }
 
       if (rcmd->fd_to_close == 1){
@@ -87,7 +96,6 @@ void execute(struct cmd *cmd)
 
   case LIST:
     lcmd = (struct listcmd*)cmd;
-
     pid = fork();
     if (pid == 0){ // child process
       ecmd = (struct execcmd*)lcmd->left;
@@ -136,10 +144,9 @@ void execute(struct cmd *cmd)
 	execvp(ecmd->argv[0], &ecmd->argv[0]);
       }
     }
-    //int status;
     close(fd[0]);
     close(fd[1]);
-    for (int i = 0; i < 2; i++){
+    for (int i = 0; i < MAXARGS - 1; i++){
       wait(&status);
     }
     setbuf(stdout, NULL);
@@ -150,22 +157,18 @@ void execute(struct cmd *cmd)
     pid = fork();
     if (pid < 0){
       fprintf(stderr, "Fork failed");
+      exit(-1);
     }
-    else if (pid == 0){ // child process
-      ecmd = (struct execcmd*)cmd;
-      execvp(ecmd->argv[0], &ecmd->argv[0]);
+    else if (pid == 0){
+      setpgid(0,0);
+      execute(bcmd->cmd);
       exit(0);
-    }
-    else{ //parent
-      int status;
-      waitpid(pid, &status, 0);
-    }
+    }  
+    
     break;
-
 
   default:
     PANIC("");
-
   }
  printcmd_exit:
 
@@ -181,14 +184,19 @@ int main(void)
   int fd;
 
   setbuf(stdout, NULL);
-
-  // Read and run input commands.
+  signal(SIGINT, handlec);
+  
   while(getcmd(buf, sizeof(buf)) >= 0)
     {
+      if (running == 0){
+	printf("Ctrl-C Catched, but there is currently no foreground process running\n");
+	running = 1;
+      }
       struct cmd * command;
       command = parsecmd(buf);
-      execute(command); // TODO: run the parsed command instead of printing it
+      execute(command); 
     }
+  exit(0);
 
   PANIC("getcmd error!\n");
   return 0;
