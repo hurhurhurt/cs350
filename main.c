@@ -84,7 +84,7 @@ void execute(struct cmd *cmd)
 
       if (ecmd->type == REDIR){
 	execute((struct cmd *)ecmd);
-	exit(0);
+	_exit(0);
       }
       else{
 	execvp(ecmd->argv[0], &ecmd->argv[0]);
@@ -138,7 +138,7 @@ void execute(struct cmd *cmd)
       close(fd[0]);
       if (pcmd->right->type == PIPE){
 	execute(pcmd->right);
-	exit(0);
+	_exit(0);
       }
       else{
 	ecmd = (struct execcmd*)pcmd->right;
@@ -163,7 +163,7 @@ void execute(struct cmd *cmd)
     else if (pid == 0){
       setpgid(0,0);
       execute(bcmd->cmd);
-      exit(0);
+      _exit(0);
     }  
     setbuf(stdout, NULL);
     break;
